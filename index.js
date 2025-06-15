@@ -13,7 +13,6 @@ const CEO_PASSWORD = "ceo123";
 // 1️⃣ MongoDB connection
 const uri = 'mongodb+srv://cosc221101050kfueitedupk:hCds3Oasgxnxu24X@cluster0.730knqk.mongodb.net/qatar?retryWrites=true&w=majority&appName=Cluster0';
 
-
 mongoose.connect(uri)
 .then(() => console.log('Connected to DB'))
 .catch((error) => console.error(error));
@@ -29,55 +28,40 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model("users", userSchema);
 
-// 3️⃣ Category schema for each company
-const categorySchema = new mongoose.Schema({
+// 3️⃣ Category schema (used inside sectors)
+const CategorySchema = new mongoose.Schema({
   name: String,
   monthly: {
     type: Map,
-    of: new mongoose.Schema(
-      {
-        budget: Number,
-        expense: Number,
-      },
-      { _id: false }
-    ),
+    of: {
+      budget: Number,
+      expense: Number
+    }
   },
   yearly: {
     type: Map,
-    of: new mongoose.Schema(
-      {
-        budget: Number,
-        expense: Number,
-      },
-      { _id: false }
-    ),
-  },
+    of: {
+      budget: Number,
+      expense: Number
+    }
+  }
 });
 
-const companySchema = new mongoose.Schema({
+const SectorSchema = new mongoose.Schema({
+  sectorName: String,
+  categories: [CategorySchema]
+});
+
+const CompanySchema = new mongoose.Schema({
   name: String,
   location: String,
   userEmail: String,
   userName: String,
-  image: String, // ✅ ADD THIS LINE
-  categories: [
-    {
-      name: String,
-      monthly: {
-        type: Object,
-        default: {},
-      },
-      yearly: {
-        type: Object,
-        default: {},
-      },
-    },
-  ],
+  image: String,
+  sectors: [SectorSchema]
 });
 
-
-const Company = mongoose.model("companies", companySchema);
-
+const Company = mongoose.model("companies", CompanySchema);
 // 5️⃣ Signup API
 app.post("/signup", async (req, res) => {
   const { email, password, name } = req.body;
@@ -108,7 +92,6 @@ app.post("/signup", async (req, res) => {
     res.status(500).send({ error: "Error creating user" });
   }
 });
-
 // 6️⃣ Login API
 app.post("/login", async (req, res) => {
   const { email, password } = req.body;
@@ -141,7 +124,6 @@ app.post("/login", async (req, res) => {
     role: "manager",
   });
 });
-
 // 7️⃣ Add a company
 app.post("/add-company", async (req, res) => {
   const { name, location, image, userEmail, userName } = req.body;
@@ -164,7 +146,6 @@ app.post("/add-company", async (req, res) => {
     res.status(500).send({ error: "Error saving company" });
   }
 });
-
 // 8️⃣ Get all companies
 app.get("/companies", async (req, res) => {
   const { userEmail, role } = req.query;
@@ -216,43 +197,31 @@ app.get("/company/:companyId", async (req, res) => {
   }
 });
 
-//Add Category
-app.post("/company/:companyId/add-category", async (req, res) => {
+//updatye yearly data
+app.post("/company/:companyId/update-yearly-category", async (req, res) => {
   const { companyId } = req.params;
-  const { name } = req.body;
-
-  if (!name)
-    return res.status(400).send({ error: "Category name is required" });
+  const { sectorIndex, categoryIndex, month, yearlyBudget, yearlyExpense } = req.body;
 
   try {
     const company = await Company.findById(companyId);
     if (!company) return res.status(404).send({ error: "Company not found" });
 
-    company.categories.push({ name, monthly: {}, yearly: {} });
-    await company.save();
+    const sector = company.sectors[sectorIndex];
+    if (!sector) return res.status(404).send({ error: "Sector not found" });
 
-    res.send(company);
-  } catch (err) {
-    console.error("Error adding category:", err);
-    res.status(500).send({ error: "Failed to add category" });
-  }
-});
-
-app.post("/company/:companyId/update-yearly", async (req, res) => {
-  const { companyId } = req.params;
-  const { categoryIndex, year, yearlyBudget, yearlyExpense } = req.body;
-
-  try {
-    const company = await Company.findById(companyId);
-    if (!company) return res.status(404).send({ error: "Company not found" });
-
-    const category = company.categories[categoryIndex];
+    const category = sector.categories[categoryIndex];
     if (!category) return res.status(404).send({ error: "Category not found" });
 
-    category.yearly.set(year, {
+    if (!(category.yearly instanceof Map)) {
+      category.yearly = new Map(Object.entries(category.yearly || {}));
+    }
+
+    category.yearly.set(month, {
       budget: Number(yearlyBudget),
       expense: Number(yearlyExpense),
     });
+
+    company.markModified(`sectors.${sectorIndex}.categories.${categoryIndex}.yearly`);
 
     await company.save();
     res.send({ message: "Yearly data updated", category });
@@ -262,82 +231,76 @@ app.post("/company/:companyId/update-yearly", async (req, res) => {
   }
 });
 
-app.post("/company/:id/update-category", async (req, res) => {
+
+//update category monthly data
+app.post('/company/:id/update-cat', async (req, res) => {
+  const { id } = req.params;
+  const { sectorIndex, categoryIndex, month, monthlyBudget, monthlyExpense } = req.body;
+
   try {
-    const {
-      categoryIndex,
-      month,
-      year,
-      monthlyBudget,
-      monthlyExpense,
-      yearlyBudget,
-      yearlyExpense,
-    } = req.body;
-    const company = await Company.findById(req.params.id);
+    const company = await Company.findById(id);
+    if (!company) return res.status(404).json({ message: 'Company not found' });
 
-    if (!company) return res.status(404).send("Company not found");
+    const category = company.sectors[sectorIndex]?.categories[categoryIndex];
+    if (!category) return res.status(404).json({ message: 'Category not found' });
 
-    const category = company.categories[categoryIndex];
-    if (!category) return res.status(404).send("Category not found");
-
-    // ✅ Ensure monthly and yearly are plain objects
-    if (!category.monthly || typeof category.monthly !== "object")
-      category.monthly = {};
-    if (!category.yearly || typeof category.yearly !== "object")
-      category.yearly = {};
-
-    // ✅ Handle monthly update
-    if (month) {
-      category.monthly[month] = {
-        budget: Number(monthlyBudget || 0),
-        expense: Number(monthlyExpense || 0),
-      };
-      company.markModified(`categories.${categoryIndex}.monthly`);
+    if (!(category.monthly instanceof Map)) {
+      category.monthly = new Map(Object.entries(category.monthly || {}));
     }
 
-    // ✅ Handle yearly update
-    if (year) {
-      category.yearly[year] = {
-        budget: Number(yearlyBudget || 0),
-        expense: Number(yearlyExpense || 0),
-      };
-      company.markModified(`categories.${categoryIndex}.yearly`);
-    }
+    category.monthly.set(month, {
+      budget: Number(monthlyBudget),
+      expense: Number(monthlyExpense)
+    });
+
+    // ✅ This is CRUCIAL
+    company.markModified(`sectors.${sectorIndex}.categories.${categoryIndex}.monthly`);
 
     await company.save();
-    res.send(company);
+    res.json({ message: 'Monthly data updated', category });
   } catch (err) {
-    console.error("Error updating category:", err);
-    res.status(500).send("Server error while updating category.");
+    console.error('Error updating monthly data:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
+
+
+
+
 
 // 🔥  Add a new category to a company
-app.post("/add-category/:companyId", async (req, res) => {
-  const { companyId } = req.params;
-  const { name, yearlyBudget = 0, yearlyExpense = 0 } = req.body;
-  const year = new Date().getFullYear().toString();
+app.post("/company/:id/add-category", async (req, res) => {
+  const { id } = req.params;
+  const { sectorIndex, categoryName } = req.body;
+
+  if (sectorIndex === undefined || !categoryName) {
+    return res.status(400).json({ message: "Sector index and category name are required" });
+  }
+
   try {
-    const company = await Company.findById(companyId);
-    if (!company) return res.status(404).send({ error: "Company not found" });
-    const newCategory = {
-      name,
-      yearly: {
-        [year]: {
-          budget: Number(yearlyBudget),
-          expense: Number(yearlyExpense),
-        },
-      },
+    const company = await Company.findById(id);
+    if (!company) return res.status(404).json({ message: "Company not found" });
+
+    // Check if sector index exists
+    if (!company.sectors || !company.sectors[sectorIndex]) {
+      return res.status(400).json({ message: "Sector not found at given index" });
+    }
+
+    // Push the new category into the selected sector
+    company.sectors[sectorIndex].categories.push({
+      name: categoryName,
       monthly: {},
-    };
-    company.categories.push(newCategory);
+      yearly: {},
+    });
+
     await company.save();
-    res.send({ message: "Category added", company });
+    res.status(200).json(company);
   } catch (err) {
-    console.error(err);
-    res.status(500).send({ error: "Error adding category" });
+    console.error("Error adding category:", err);
+    res.status(500).json({ message: "Internal server error" });
   }
 });
+
 
 //  Delete specific yearly or monthly data from a category
 app.post("/company/:companyId/delete-category-data", async (req, res) => {
@@ -436,9 +399,12 @@ app.post("/company/:companyId/delete-month", async (req, res) => {
   }
 });
 
+// Dashboard Route
 app.get("/dashboard", async (req, res) => {
   const { userEmail, role } = req.query;
-  if (!userEmail || !role) return res.status(400).send({ error: "userEmail and role are required" });
+  if (!userEmail || !role) {
+    return res.status(400).send({ error: "userEmail and role are required" });
+  }
 
   try {
     const companies = role === "ceo"
@@ -453,21 +419,34 @@ app.get("/dashboard", async (req, res) => {
     companies.forEach((company) => {
       let companyBudget = 0;
 
-      company.categories.forEach((category) => {
-        const yearly = category.yearly || {};
-        
-        Object.entries(yearly).forEach(([year, { budget, expense }]) => {
-          if (!yearMap[year]) yearMap[year] = { year, budget: 0, expense: 0 };
+      if (company.sectors && Array.isArray(company.sectors)) {
+        company.sectors.forEach((sector) => {
+          if (sector.categories && Array.isArray(sector.categories)) {
+            sector.categories.forEach((category) => {
+              const yearly = category.yearly || {};
 
-          yearMap[year].budget += budget;
-          yearMap[year].expense += expense;
+              // ✅ Ensure it's plain object not Mongoose weird object
+              const plainYearly = JSON.parse(JSON.stringify(yearly));
 
-          // ✅ Add to total for all years
-          totalBudget += budget;
-          totalExpense += expense;
-          companyBudget += budget;
+              Object.entries(plainYearly).forEach(([year, values]) => {
+                const budget = Number(values?.budget || 0);
+                const expense = Number(values?.expense || 0);
+
+                if (!yearMap[year]) {
+                  yearMap[year] = { year, budget: 0, expense: 0 };
+                }
+
+                yearMap[year].budget += budget;
+                yearMap[year].expense += expense;
+
+                totalBudget += budget;
+                totalExpense += expense;
+                companyBudget += budget;
+              });
+            });
+          }
         });
-      });
+      }
 
       companySummaries.push({ name: company.name, budget: companyBudget });
     });
@@ -476,38 +455,51 @@ app.get("/dashboard", async (req, res) => {
 
     res.send({ totalBudget, totalExpense, graphData, companySummaries });
   } catch (error) {
+    console.error("Dashboard error:", error);
     res.status(500).send({ error: "Dashboard error" });
   }
 });
 
-// 🆕 GET: Category-wise comparison data for a company
+
+
+
+
+// Category Comparison Route
 app.get("/category-comparison", async (req, res) => {
   const { userEmail, role } = req.query;
 
   try {
-    let companies = [];
-
-    if (role === "ceo") {
-      companies = await Company.find();
-    } else {
-      companies = await Company.find({ userEmail });
-    }
+    const companies = role === "ceo"
+      ? await Company.find()
+      : await Company.find({ userEmail });
 
     const categoryTotals = {};
 
     companies.forEach((company) => {
-      company.categories.forEach((cat) => {
-        if (!categoryTotals[cat.name]) {
-          categoryTotals[cat.name] = { yearlyBudget: 0, yearlyExpense: 0 };
-        }
+      if (company.sectors && Array.isArray(company.sectors)) {
+        company.sectors.forEach((sector) => {
+          if (sector.categories && Array.isArray(sector.categories)) {
+            sector.categories.forEach((cat) => {
+              const categoryName = cat.name;
 
-        if (cat.yearly && typeof cat.yearly === "object") {
-          Object.values(cat.yearly).forEach((entry) => {
-            categoryTotals[cat.name].yearlyBudget += Number(entry.budget || 0);
-            categoryTotals[cat.name].yearlyExpense += Number(entry.expense || 0);
-          });
-        }
-      });
+              if (!categoryTotals[categoryName]) {
+                categoryTotals[categoryName] = {
+                  yearlyBudget: 0,
+                  yearlyExpense: 0,
+                };
+              }
+
+              const yearly = cat.yearly || {};
+              const plainYearly = JSON.parse(JSON.stringify(yearly));
+
+              Object.values(plainYearly).forEach((entry) => {
+                categoryTotals[categoryName].yearlyBudget += Number(entry.budget || 0);
+                categoryTotals[categoryName].yearlyExpense += Number(entry.expense || 0);
+              });
+            });
+          }
+        });
+      }
     });
 
     const result = Object.entries(categoryTotals).map(([name, values]) => ({
@@ -522,6 +514,7 @@ app.get("/category-comparison", async (req, res) => {
     res.status(500).send({ error: "Server error during category comparison" });
   }
 });
+
 
 
 
