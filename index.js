@@ -480,6 +480,50 @@ app.get("/dashboard", async (req, res) => {
   }
 });
 
+// 🆕 GET: Category-wise comparison data for a company
+app.get("/category-comparison", async (req, res) => {
+  const { userEmail, role } = req.query;
+
+  try {
+    let companies = [];
+
+    if (role === "ceo") {
+      companies = await Company.find();
+    } else {
+      companies = await Company.find({ userEmail });
+    }
+
+    const categoryTotals = {};
+
+    companies.forEach((company) => {
+      company.categories.forEach((cat) => {
+        if (!categoryTotals[cat.name]) {
+          categoryTotals[cat.name] = { yearlyBudget: 0, yearlyExpense: 0 };
+        }
+
+        if (cat.yearly && typeof cat.yearly === "object") {
+          Object.values(cat.yearly).forEach((entry) => {
+            categoryTotals[cat.name].yearlyBudget += Number(entry.budget || 0);
+            categoryTotals[cat.name].yearlyExpense += Number(entry.expense || 0);
+          });
+        }
+      });
+    });
+
+    const result = Object.entries(categoryTotals).map(([name, values]) => ({
+      categoryName: name,
+      yearlyBudget: values.yearlyBudget,
+      yearlyExpense: values.yearlyExpense,
+    }));
+
+    res.send(result);
+  } catch (err) {
+    console.error("Error in /category-comparison:", err);
+    res.status(500).send({ error: "Server error during category comparison" });
+  }
+});
+
+
 
 
 // ✅ Start server
