@@ -436,6 +436,52 @@ app.post("/company/:companyId/delete-month", async (req, res) => {
   }
 });
 
+app.get("/dashboard", async (req, res) => {
+  const { userEmail, role } = req.query;
+  if (!userEmail || !role) return res.status(400).send({ error: "userEmail and role are required" });
+
+  try {
+    const companies = role === "ceo"
+      ? await Company.find()
+      : await Company.find({ userEmail });
+
+    let totalBudget = 0;
+    let totalExpense = 0;
+    const yearMap = {};
+    const companySummaries = [];
+
+    companies.forEach((company) => {
+      let companyBudget = 0;
+
+      company.categories.forEach((category) => {
+        const yearly = category.yearly || {};
+        
+        Object.entries(yearly).forEach(([year, { budget, expense }]) => {
+          if (!yearMap[year]) yearMap[year] = { year, budget: 0, expense: 0 };
+
+          yearMap[year].budget += budget;
+          yearMap[year].expense += expense;
+
+          // ✅ Add to total for all years
+          totalBudget += budget;
+          totalExpense += expense;
+          companyBudget += budget;
+        });
+      });
+
+      companySummaries.push({ name: company.name, budget: companyBudget });
+    });
+
+    const graphData = Object.values(yearMap).sort((a, b) => parseInt(a.year) - parseInt(b.year));
+
+    res.send({ totalBudget, totalExpense, graphData, companySummaries });
+  } catch (error) {
+    res.status(500).send({ error: "Dashboard error" });
+  }
+});
+
+
+
 // ✅ Start server
 const PORT = 3500;
 app.listen(PORT, () => {
