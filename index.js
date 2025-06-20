@@ -24,6 +24,7 @@ const userSchema = new mongoose.Schema({
   email: String,
   password: String,
   role: { type: String, default: "manager" },
+  group: { type: String, required: true }, // ✅ NEW field
 });
 
 const User = mongoose.model("users", userSchema);
@@ -49,46 +50,6 @@ const expenseCategorySchema = new mongoose.Schema({
     required: true,
   },
 });
-
-
-
-//expensesubcategoryschema
-// Expense Subcategory Schema
-const expenseSubCategorySchema = new mongoose.Schema({
-  companyId: {
-    type: mongoose.Schema.Types.ObjectId,
-    required: true,
-    ref: 'Company',
-  },
-  categoryName: {
-    type: String,
-    required: true,
-  },
-  subcategory: {
-    type: String,
-    required: true,
-  },
-  month: {
-    type: String,
-    required: true,
-  },
-  year: {
-    type: String,
-    required: true,
-  },
-  expectedBudget: {
-    type: Number,
-    required: true,
-  },
-  actualBudget: {
-    type: Number,
-    required: true,
-  }
-}, {
-  timestamps: true,
-});
-
-
 
 const CompanySchema = new mongoose.Schema({
   name: String,
@@ -118,13 +79,26 @@ const CompanySchema = new mongoose.Schema({
   ]
 });
 
+//  GET all managers (for CEO dashboard)
+app.get('/api/users', async (req, res) => {
+  try {
+    // This returns name, email, and group for all managers
+    const users = await User.find({ role: "manager" }, "name email group");
+    res.status(200).json(users);
+  } catch (error) {
+    console.error("Error fetching managers:", error);
+    res.status(500).json({ error: "Failed to fetch managers" });
+  }
+});
+
+
 
 
 
 const Company = mongoose.model("companies", CompanySchema);
 // 5️⃣ Signup API
 app.post("/signup", async (req, res) => {
-  const { email, password, name } = req.body;
+  const { email, password, name, group } = req.body;
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!email || !emailRegex.test(email)) {
@@ -138,6 +112,9 @@ app.post("/signup", async (req, res) => {
   if (!name) {
     return res.status(400).send({ error: "Name is required" });
   }
+  if (!group || group.trim() === "") {
+    return res.status(400).send({ error: "Group is required" });
+  }
 
   const existingUser = await User.findOne({ email });
   if (existingUser) {
@@ -145,13 +122,14 @@ app.post("/signup", async (req, res) => {
   }
 
   try {
-    const newUser = new User({ email, password, name });
+    const newUser = new User({ email, password, name, group }); // ✅ Add group
     await newUser.save();
     res.send({ message: "Signup successful" });
   } catch (error) {
     res.status(500).send({ error: "Error creating user" });
   }
 });
+
 // 6️⃣ Login API
 app.post("/login", async (req, res) => {
   const { email, password } = req.body;
@@ -401,35 +379,57 @@ app.post('/api/expense/add-subcategory/:companyId', async (req, res) => {
     month,
     year,
     expectedBudget,
-    actualBudget
+    actualBudget,
   } = req.body;
 
-  try {
-    const company = await Company.findById(companyId);
-    if (!company) return res.status(404).json({ message: 'Company not found' });
+  // 1. Basic Validation
+  if (
+    !categoryName ||
+    !subcategory ||
+    !month ||
+    !year ||
+    expectedBudget === undefined ||
+    actualBudget === undefined
+  ) {
+    return res.status(400).json({ message: 'All fields are required.' });
+  }
 
-    // Find the matching category in expenseEntries
+  try {
+    // 2. Find the company
+    const company = await Company.findById(companyId);
+    if (!company) {
+      return res.status(404).json({ message: 'Company not found.' });
+    }
+
+    // 3. Find the category in expenseEntries
     const category = company.expenseEntries.find(entry => entry.categoryName === categoryName);
 
     if (!category) {
-      return res.status(404).json({ message: 'Category not found in expense entries' });
+      return res.status(404).json({ message: 'Category not found in expense entries.' });
     }
 
-    // Push subcategory into the subcategories array
+    // 4. Ensure subcategories array exists
+    if (!Array.isArray(category.subcategories)) {
+      category.subcategories = [];
+    }
+
+    // 5. Push the subcategory
     category.subcategories.push({
       subcategory,
       month,
       year,
       expectedBudget,
-      actualBudget
+      actualBudget,
     });
 
+    // 6. Save the updated company
     await company.save();
 
-    res.status(200).json({ message: 'Expense subcategory added successfully', data: company });
+    return res.status(200).json({ message: 'Expense subcategory added successfully.', data: company });
+
   } catch (error) {
     console.error('Error adding expense subcategory:', error);
-    res.status(500).json({ message: 'Internal Server Error' });
+    return res.status(500).json({ message: 'Internal Server Error.' });
   }
 });
 
