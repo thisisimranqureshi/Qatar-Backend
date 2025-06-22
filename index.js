@@ -174,7 +174,6 @@ app.post("/add-company", async (req, res) => {
     const newCompany = new Company({
       name,
       location,
-      image,
       userEmail,
       userName,
     });
@@ -193,9 +192,9 @@ app.get("/companies", async (req, res) => {
   try {
     let companies;
     if (role === "ceo") {
-      companies = await Company.find(); // ✅ CEO sees all
+      companies = await Company.find(); // CEO sees all
     } else {
-      companies = await Company.find({ userEmail }); // ✅ Manager sees only their companies
+      companies = await Company.find({ userEmail }); // Manager sees only their companies
     }
     res.send(companies);
   } catch (error) {
@@ -526,68 +525,7 @@ app.get("/dashboard", async (req, res) => {
 });
 
 
-
-
-
-// Category Comparison Route
-app.get("/category-comparison", async (req, res) => {
-  const { userEmail, role } = req.query;
-
-  try {
-    const companies = role === "ceo"
-      ? await Company.find()
-      : await Company.find({ userEmail });
-
-    const categoryTotals = {};
-
-    companies.forEach((company) => {
-      if (company.sectors && Array.isArray(company.sectors)) {
-        company.sectors.forEach((sector) => {
-          if (sector.categories && Array.isArray(sector.categories)) {
-            sector.categories.forEach((cat) => {
-              const categoryName = cat.name;
-
-              if (!categoryTotals[categoryName]) {
-                categoryTotals[categoryName] = {
-                  yearlyBudget: 0,
-                  yearlyExpense: 0,
-                };
-              }
-
-              const yearly = cat.yearly || {};
-              const plainYearly = JSON.parse(JSON.stringify(yearly));
-
-              Object.values(plainYearly).forEach((entry) => {
-                categoryTotals[categoryName].yearlyBudget += Number(entry.budget || 0);
-                categoryTotals[categoryName].yearlyExpense += Number(entry.expense || 0);
-              });
-            });
-          }
-        });
-      }
-    });
-
-    const result = Object.entries(categoryTotals).map(([name, values]) => ({
-      categoryName: name,
-      yearlyBudget: values.yearlyBudget,
-      yearlyExpense: values.yearlyExpense,
-    }));
-
-    res.send(result);
-  } catch (err) {
-    console.error("Error in /category-comparison:", err);
-    res.status(500).send({ error: "Server error during category comparison" });
-  }
-});
-
-
-
-
-
-
-
-
-// ✅ Start server
+//  Start server
 const PORT = 3500;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
