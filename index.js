@@ -83,7 +83,7 @@ const CompanySchema = new mongoose.Schema({
 app.get('/api/users', async (req, res) => {
   try {
     // This returns name, email, and group for all managers
-    const users = await User.find({ role: "manager" }, "name email group");
+    const users = await User.find({ role: "manager" }, "name email group role");
     res.status(200).json(users);
   } catch (error) {
     console.error("Error fetching managers:", error);
@@ -183,6 +183,29 @@ app.post("/add-company", async (req, res) => {
     res.status(500).send({ error: "Error saving company" });
   }
 });
+
+
+
+
+//updating user data in user
+app.put("/api/users/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, email, password, group, role } = req.body;
+
+    const updated = await User.findByIdAndUpdate(
+      id,
+      { name, email, password, group, role },
+      { new: true }
+    );
+
+    res.status(200).json({ message: "User updated", updated });
+  } catch (err) {
+    console.error("Error updating user:", err);
+    res.status(500).json({ error: "Failed to update user" });
+  }
+});
+
 // 8️⃣ Get all companies
 app.get("/companies", async (req, res) => {
   const { userEmail, role } = req.query;
