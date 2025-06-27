@@ -18,13 +18,17 @@ mongoose.connect(uri)
 .catch((error) => console.error(error));
 
 
-// 2️⃣ User schema & model
+// 2 User schema & model
 const userSchema = new mongoose.Schema({
   name: String,
   email: String,
   password: String,
-  role: { type: String, default: "manager" },
-  group: { type: String, required: true }, // ✅ NEW field
+  role:{
+    type:String,
+    enum:["manager","ceo","admin"],
+    default:"manager"
+  },
+  group: String
 });
 
 const User = mongoose.model("users", userSchema);
@@ -82,14 +86,14 @@ const CompanySchema = new mongoose.Schema({
 //  GET all managers (for CEO dashboard)
 app.get('/api/users', async (req, res) => {
   try {
-    // This returns name, email, and group for all managers
-    const users = await User.find({ role: "manager" }, "name email group role");
+    const users = await User.find({}, "name email group role");
     res.status(200).json(users);
   } catch (error) {
-    console.error("Error fetching managers:", error);
-    res.status(500).json({ error: "Failed to fetch managers" });
+    console.error("Error fetching users:", error);
+    res.status(500).json({ error: "Failed to fetch users" });
   }
 });
+
 
 
 
@@ -98,7 +102,7 @@ app.get('/api/users', async (req, res) => {
 const Company = mongoose.model("companies", CompanySchema);
 // 5️⃣ Signup API
 app.post("/signup", async (req, res) => {
-  const { email, password, name, group } = req.body;
+  const { email, password, name, group,role } = req.body;
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!email || !emailRegex.test(email)) {
@@ -122,7 +126,7 @@ app.post("/signup", async (req, res) => {
   }
 
   try {
-    const newUser = new User({ email, password, name, group }); // ✅ Add group
+    const newUser = new User({ email, password, name, group,role }); // ✅ Add group
     await newUser.save();
     res.send({ message: "Signup successful" });
   } catch (error) {
@@ -131,12 +135,14 @@ app.post("/signup", async (req, res) => {
 });
 
 // 6️⃣ Login API
+// 6️⃣ Login API
 app.post("/login", async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).send({ error: "Email and password are required" });
   }
 
+  // Check hard-coded CEO (legacy)
   if (email === CEO_EMAIL && password === CEO_PASSWORD) {
     return res.send({
       message: "CEO login successful",
@@ -146,22 +152,36 @@ app.post("/login", async (req, res) => {
     });
   }
 
+  // Check DB users
   const user = await User.findOne({ email });
   if (!user) {
     return res.status(400).send({ error: "User not found" });
   }
+
   if (user.password !== password) {
     return res.status(400).send({ error: "Invalid password" });
   }
 
   const userData = { ...user._doc };
   delete userData.password;
-  res.send({
-    message: "Manager login successful",
+
+  let message = "";
+  if (user.role === "ceo") {
+    message = "CEO login successful";
+  } else if (user.role === "admin") {
+    message = "Admin login successful";
+  } else {
+    message = "Manager login successful";
+  }
+
+  return res.send({
+    message,
     ...userData,
-    role: "manager",
+    role: user.role,
   });
 });
+
+
 // 7️⃣ Add a company
 app.post("/add-company", async (req, res) => {
   const { name, location, image, userEmail, userName } = req.body;
@@ -214,7 +234,7 @@ app.get("/companies", async (req, res) => {
   }
   try {
     let companies;
-    if (role === "ceo") {
+    if (role === "ceo" ||role=="admin") {
       companies = await Company.find(); // CEO sees all
     } else {
       companies = await Company.find({ userEmail }); // Manager sees only their companies
@@ -494,7 +514,7 @@ app.get("/dashboard", async (req, res) => {
   }
 
   try {
-    const companies = role === "ceo"
+    const companies = role === "ceo"||role=="admin"
       ? await Company.find()
       : await Company.find({ userEmail });
 
