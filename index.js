@@ -135,7 +135,6 @@ app.post("/signup", async (req, res) => {
 });
 
 // 6️⃣ Login API
-// 6️⃣ Login API
 app.post("/login", async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
@@ -201,6 +200,30 @@ app.post("/add-company", async (req, res) => {
     res.send({ message: "Company added successfully" });
   } catch (error) {
     res.status(500).send({ error: "Error saving company" });
+  }
+});
+
+
+// ✅ UPDATE company name route
+app.put('/companies/:id', async (req, res) => {
+  const companyId = req.params.id;
+  const { name } = req.body;
+
+  try {
+    const updated = await Company.findByIdAndUpdate(
+      companyId,
+      { name },
+      { new: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json({ message: 'Company not found' });
+    }
+
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating company:', error);
+    res.status(500).json({ message: 'Server error updating company' });
   }
 });
 
@@ -495,6 +518,49 @@ app.get('/api/expense/subcategories', async (req, res) => {
   } catch (err) {
     console.error('Error fetching expense subcategories:', err);
     res.status(500).json({ message: 'Internal Server Error' });
+  }
+});
+
+//editing expense subcategory name 
+app.put('/api/expense/update-subcategory/:companyId', async (req, res) => {
+  const { companyId } = req.params;
+  const { oldName, newName, categoryName } = req.body;
+
+  try {
+    // Find the company
+    const company = await Company.findById(companyId);
+    if (!company) {
+      return res.status(404).json({ message: 'Company not found' });
+    }
+
+    // Find the category inside expenseEntries
+    const category = company.expenseEntries.find(entry => entry.categoryName === categoryName);
+    if (!category) {
+      return res.status(404).json({ message: 'Category not found' });
+    }
+
+    let modifiedCount = 0;
+
+    // Update subcategory names
+    category.subcategories.forEach((subcat) => {
+      if (subcat.subcategory === oldName) {
+        subcat.subcategory = newName;
+        modifiedCount++;
+      }
+    });
+
+    if (modifiedCount > 0) {
+      await company.save();
+    }
+
+    res.json({
+      success: true,
+      modifiedCount
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Internal server error updating subcategory name' });
   }
 });
 
